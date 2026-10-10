@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- SEO -->
+<title>SPICEE — Aplikasi UMKM Rempah & Produk Khas Indonesia</title>
+<meta name="description" content="SPICEE membantu pelaku UMKM rempah dan produk khas Indonesia mencatat keuangan, menghitung HPP, dan berkonsultasi dengan asisten AI seputar rempah, jamu, PIRT, dan BPOM.">
+<meta name="keywords" content="UMKM rempah, jamu Indonesia, HPP, PIRT, BPOM, keuangan UMKM, kunyit, jahe, temulawak, sereh">
+<meta name="robots" content="index, follow">
+<meta name="author" content="SPICEE Team">
+
+<!-- Open Graph -->
+<meta property="og:title" content="SPICEE — Aplikasi UMKM Rempah Indonesia">
+<meta property="og:description" content="Catat keuangan, hitung HPP, dan tanya asisten AI seputar rempah dan jamu Indonesia.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="id_ID">
+
+<!-- Security headers -->
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="X-Frame-Options" content="DENY">
+<meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Vue 3 CDN -->
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+
+<style>
+  [v-cloak] { display: none; }
+  body { font-family: system-ui, sans-serif; }
+  .bubble-bot  { background:#f1f5f9; border-radius:16px 16px 16px 4px; }
+  .bubble-user { background:#16a34a; color:white; border-radius:16px 16px 4px 16px; }
+  .toast {
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+    padding:10px 20px; border-radius:99px; font-size:13px; font-weight:600;
+    z-index:999; transition:opacity .3s; pointer-events:none; white-space:nowrap;
+  }
+  .toast-ok  { background:#16a34a; color:#fff; }
+  .toast-err { background:#dc2626; color:#fff; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .spinner {
+    display:inline-block; width:14px; height:14px;
+    border:2px solid rgba(255,255,255,.5); border-top-color:#fff;
+    border-radius:50%; animation:spin .6s linear infinite;
+  }
+  .typing-dot { animation:blink 1.2s infinite; }
+  .typing-dot:nth-child(2) { animation-delay:.2s; }
+  .typing-dot:nth-child(3) { animation-delay:.4s; }
+  @keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+</style>
+</head>
+
+<body class="bg-gray-100 pb-20">
+<div id="app" v-cloak>
+
+  <!-- Toast notifikasi -->
+  <div :class="['toast', toast.type, toast.visible ? 'opacity-100' : 'opacity-0']">
+    {{ toast.msg }}
+  </div>
+
+  <!-- HEADER -->
+  <header class="bg-green-600 text-white p-4 shadow">
+    <h1 class="font-bold text-lg">🌿 SPICEE</h1>
+    <p class="text-xs opacity-80">UMKM Bahan Baku Khas Indonesia</p>
+  </header>
+
+  <!-- ═══════════════════════════════════════════
+       HALAMAN KEUANGAN
+  ═══════════════════════════════════════════ -->
+  <main>
+  <section v-show="page === 'keuangan'" class="p-4 max-w-md mx-auto">
+
+    <!-- 3 Kartu Ringkasan -->
+    <div class="grid grid-cols-3 gap-2 mb-4">
+      <div class="bg-white rounded-xl p-3 shadow text-center">
+        <p class="text-xs text-gray-500">Masuk</p>
+        <p class="font-bold text-green-600 text-sm">
+          <span v-if="keuangan.loading" class="text-gray-300">—</span>
+          <span v-else>{{ rupiah(keuangan.total_masuk) }}</span>
+        </p>
+      </div>
+      <div class="bg-white rounded-xl p-3 shadow text-center">
+        <p class="text-xs text-gray-500">Keluar</p>
+        <p class="font-bold text-red-500 text-sm">
+          <span v-if="keuangan.loading" class="text-gray-300">—</span>
+          <span v-else>{{ rupiah(keuangan.total_keluar) }}</span>
+        </p>
+      </div>
+      <div class="bg-white rounded-xl p-3 shadow text-center">
+        <p class="text-xs text-gray-500">Laba</p>
+        <p class="font-bold text-blue-600 text-sm">
+          <span v-if="keuangan.loading" class="text-gray-300">—</span>
+          <span v-else>{{ rupiah(keuangan.laba) }}</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- Insight Langflow (opsional) -->
+    <div v-if="keuangan.insight" class="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 text-xs text-green-800">
+      💡 {{ keuangan.insight }}
+    </div>
+
+    <!-- Error ringkasan -->
+    <div v-if="keuangan.error" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700">
+      ⚠️ {{ keuangan.error }}
+    </div>
+
+    <!-- Form Catat Transaksi -->
+    <div class="bg-white rounded-xl p-4 shadow mb-4">
+      <h2 class="font-bold mb-3">Catat Transaksi</h2>
+
+      <select v-model="form.jenis" class="w-full border rounded-lg p-2 mb-2">
+        <option value="masuk">Pemasukan</option>
+        <option value="keluar">Pengeluaran</option>
+      </select>
+
+      <input v-model.number="form.jumlah" type="number" min="1"
+        placeholder="Jumlah (Rp)"
+        :class="['w-full border rounded-lg p-2 mb-1', form.errJumlah ? 'border-red-400' : '']">
+      <p v-if="form.errJumlah" class="text-red-500 text-xs mb-2">{{ form.errJumlah }}</p>
+
+      <select v-model="form.kategori" class="w-full border rounded-lg p-2 mb-2">
+        <option value="penjualan">Penjualan</option>
+        <option value="bahan_baku">Bahan Baku</option>
+        <option value="operasional">Operasional</option>
+        <option value="lainnya">Lainnya</option>
+      </select>
+
+      <select v-model="form.akun" class="w-full border rounded-lg p-2 mb-3">
+        <option value="usaha">Usaha</option>
+        <option value="pribadi">Pribadi</option>
+      </select>
+
+      <input v-model="form.keterangan" type="text"
+        placeholder="Keterangan (opsional)"
+        class="w-full border rounded-lg p-2 mb-3">
+
+      <button @click="simpanTransaksi"
+        :disabled="form.loading"
+        class="w-full bg-green-600 text-white rounded-lg p-2 font-bold flex items-center justify-center gap-2 disabled:opacity-60">
+        <span v-if="form.loading" class="spinner"></span>
+        <span>{{ form.loading ? 'Menyimpan...' : 'Simpan' }}</span>
+      </button>
+    </div>
+
+    <!-- Riwayat Transaksi -->
+    <div class="bg-white rounded-xl p-4 shadow">
+      <h2 class="font-bold mb-3">Riwayat</h2>
+
+      <div v-if="keuangan.loading" class="text-center py-6">
+        <div class="spinner mx-auto" style="border-color:rgba(0,0,0,.15);border-top-color:#16a34a;width:20px;height:20px;border-width:3px;"></div>
+        <p class="text-gray-400 text-xs mt-2">Memuat transaksi...</p>
+      </div>
+
+      <div v-else-if="transaksi.length === 0" class="text-center py-6">
+        <p class="text-gray-400 text-sm">Belum ada transaksi. Yuk catat yang pertama!</p>
+      </div>
+
+      <div v-else>
+        <div v-for="t in transaksi.slice(0,15)" :key="t.id"
+          class="flex justify-between py-2 border-b text-sm last:border-0">
+          <div>
+            <span class="font-medium">{{ t.keterangan || t.kategori }}</span>
+            <span class="text-gray-400 text-xs block">{{ t.akun }} · {{ t.tanggal }}</span>
+          </div>
+          <span :class="['font-bold ml-2 whitespace-nowrap', t.jenis === 'masuk' ? 'text-green-600' : 'text-red-500']">
+            {{ t.jenis === 'masuk' ? '+' : '-' }} {{ rupiah(t.jumlah) }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       HALAMAN HPP
+  ═══════════════════════════════════════════ -->
+  <section v-show="page === 'hpp'" class="p-4 max-w-md mx-auto">
+    <div class="bg-white rounded-xl p-4 shadow">
+      <h2 class="font-bold mb-1">Hitung HPP Produk</h2>
+      <p class="text-xs text-gray-500 mb-3">Masukkan bahan, jumlah, dan harga per satuan.</p>
+
+      <input v-model="hpp.namaProduk" type="text"
+        placeholder="Nama produk (contoh: Jamu Kunyit Asam)"
+        class="w-full border rounded-lg p-2 mb-3">
+
+      <!-- List Bahan -->
+      <div v-for="(b, i) in hpp.bahan" :key="i" class="flex gap-2 mb-2 items-center">
+        <input v-model="b.nama" placeholder="Nama bahan"
+          class="flex-1 border rounded-lg p-2 text-sm">
+        <input v-model.number="b.jumlah" type="number" min="0.01" step="any" placeholder="Jml"
+          class="w-16 border rounded-lg p-2 text-sm">
+        <input v-model.number="b.harga" type="number" min="0.01" step="any" placeholder="Harga/sat"
+          class="w-28 border rounded-lg p-2 text-sm">
+        <button v-if="hpp.bahan.length > 1" @click="hpp.bahan.splice(i,1)"
+          class="text-red-400 font-bold px-1 text-lg">✕</button>
+        <div v-else class="w-6"></div>
+      </div>
+
+      <button @click="hpp.bahan.push({nama:'',jumlah:'',harga:''})"
+        class="w-full border-2 border-dashed border-green-400 text-green-600 rounded-lg p-2 mb-3 font-bold text-sm">
+        + Tambah Bahan
+      </button>
+
+      <!-- Margin -->
+      <div class="flex items-center gap-3 mb-3">
+        <label class="text-sm text-gray-600 whitespace-nowrap">Margin (%)</label>
+        <input v-model.number="hpp.margin" type="number" min="0" max="99" step="1"
+          class="w-20 border rounded-lg p-2 text-sm">
+      </div>
+
+      <p v-if="hpp.error" class="text-red-500 text-xs mb-2">⚠️ {{ hpp.error }}</p>
+
+      <button @click="hitungHPP"
+        :disabled="hpp.loading"
+        class="w-full bg-green-600 text-white rounded-lg p-2 font-bold mb-3 flex items-center justify-center gap-2 disabled:opacity-60">
+        <span v-if="hpp.loading" class="spinner"></span>
+        <span>{{ hpp.loading ? 'Menghitung...' : '🔍 Hitung HPP' }}</span>
+      </button>
+
+      <!-- Hasil HPP -->
+      <div v-if="hpp.hasil">
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center mb-2">
+          <p class="text-xs text-gray-600">Total HPP</p>
+          <p class="font-bold text-lg">{{ rupiah(hpp.hasil.total_hpp) }}</p>
+        </div>
+        <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center mb-3">
+          <p class="text-xs text-gray-600">Saran Harga Jual (+{{ hpp.margin }}%)</p>
+          <p class="font-bold text-lg text-green-700">{{ rupiah(hpp.hasil.saran_harga_jual) }}</p>
+        </div>
+        <!-- Rincian bahan -->
+        <div class="border rounded-lg overflow-hidden">
+          <div class="bg-gray-50 px-3 py-2 text-xs font-bold text-gray-500 uppercase">Rincian Bahan</div>
+          <div v-for="b in hpp.hasil.rincian_bahan" :key="b.nama"
+            class="flex justify-between px-3 py-2 border-t text-sm">
+            <span>{{ b.nama }} <span class="text-gray-400">{{ b.jumlah }} {{ b.satuan }}</span></span>
+            <span class="font-medium">{{ rupiah(b.subtotal) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       HALAMAN CHAT
+  ═══════════════════════════════════════════ -->
+  <section v-show="page === 'chat'"
+    class="max-w-md mx-auto flex flex-col"
+    style="height:calc(100vh - 120px);">
+
+    <!-- Bubble messages -->
+    <div ref="chatBox" class="flex-1 overflow-y-auto p-4 space-y-2">
+      <div v-for="(m, i) in chat.messages" :key="i"
+        :class="[m.user ? 'bubble-user ml-auto' : 'bubble-bot', 'p-3 max-w-[80%] text-sm whitespace-pre-wrap']">
+        <!-- Typing indicator -->
+        <span v-if="m.typing" class="flex gap-1 items-center h-4">
+          <span class="typing-dot w-2 h-2 bg-gray-400 rounded-full inline-block"></span>
+          <span class="typing-dot w-2 h-2 bg-gray-400 rounded-full inline-block"></span>
+          <span class="typing-dot w-2 h-2 bg-gray-400 rounded-full inline-block"></span>
+        </span>
+        <span v-else>{{ m.text }}</span>
+      </div>
+    </div>
+
+    <!-- Quick Questions -->
+    <div class="px-4 pb-2 flex gap-2 overflow-x-auto">
+      <button v-for="q in chat.quickQ" :key="q"
+        @click="kirimCepat(q)"
+        class="whitespace-nowrap bg-white border rounded-full px-3 py-1 text-xs shrink-0">
+        {{ q }}
+      </button>
+    </div>
+
+    <!-- Input -->
+    <div class="p-4 pt-1 flex gap-2">
+      <input v-model="chat.input" ref="chatInput"
+        placeholder="Tanya apa saja..."
+        class="flex-1 border rounded-full px-4 py-2"
+        @keydown.enter="kirimChat"
+        :disabled="chat.loading">
+      <button @click="kirimChat"
+        :disabled="chat.loading"
+        class="bg-green-600 text-white rounded-full px-4 font-bold disabled:opacity-60 flex items-center gap-1">
+        <span v-if="chat.loading" class="spinner"></span>
+        <span v-else>Kirim</span>
+      </button>
+    </div>
+    <p class="text-center text-[10px] text-gray-400 pb-2">
+      Jawaban AI bersifat informasi umum, bukan pengganti saran ahli.
+    </p>
+  </section>
+  </main>
+
+  <!-- NAVBAR BAWAH -->
+  <nav class="fixed bottom-0 w-full bg-white border-t flex justify-around py-3">
+    <button @click="pindah('keuangan')"
+      :class="page==='keuangan' ? 'font-bold text-green-600' : 'text-gray-400'">
+      💰 Keuangan
+    </button>
+    <button @click="pindah('hpp')"
+      :class="page==='hpp' ? 'font-bold text-green-600' : 'text-gray-400'">
+      🧮 HPP
+    </button>
+    <button @click="pindah('chat')"
+      :class="page==='chat' ? 'font-bold text-green-600' : 'text-gray-400'">
+      🤖 Chat
+    </button>
+  </nav>
+
+</div><!-- end #app -->
+
+<script>
+const { createApp, ref, reactive, nextTick } = Vue;
+
+const API_URL = 'http://localhost:8000';
+
+// Session ID persisten per browser
+const SESSION_ID = (() => {
+  let id = localStorage.getItem('spicee_sid');
+  if (!id) { id = crypto.randomUUID(); localStorage.setItem('spicee_sid', id); }
+  return 'spicee-' + id;
+})();
+
+// Sanitasi teks — cegah XSS dari output AI atau data API
+function safe(str) {
+  const d = document.createElement('div');
+  d.textContent = String(str ?? '');
+  return d.innerHTML;
+}
+
+const rupiah = n => 'Rp ' + Math.round(Number(n) || 0).toLocaleString('id-ID');
+
+createApp({
+  setup() {
+    // ── STATE ──────────────────────────────────────────────
+    const page = ref('keuangan');
+
+    const toast = reactive({ msg: '', type: 'toast-ok', visible: false });
+    let toastTimer;
+
+    const transaksi = ref([]);
+
+    const keuangan = reactive({
+      loading: false, error: '',
+      total_masuk: 0, total_keluar: 0, laba: 0, insight: '',
+    });
+
+    const form = reactive({
+      jenis: 'masuk', jumlah: '', kategori: 'penjualan',
+      akun: 'usaha', keterangan: '', loading: false, errJumlah: '',
+    });
+
+    const hpp = reactive({
+      namaProduk: '', margin: 30,
+      bahan: [{ nama: '', jumlah: '', harga: '' }],
+      hasil: null, loading: false, error: '',
+    });
+
+    const chat = reactive({
+      messages: [],
+      input: '',
+      loading: false,
+      quickQ: ['Kunyit bisa jadi apa?', 'Resep wedang jahe?', 'Apa itu PIRT?', 'Cara hitung HPP?'],
+    });
+
+    const chatBox  = ref(null);
+    const chatInput = ref(null);
+
+    // ── TOAST ──────────────────────────────────────────────
+    function showToast(msg, isErr = false) {
+      clearTimeout(toastTimer);
+      toast.msg     = msg;
+      toast.type    = isErr ? 'toast-err' : 'toast-ok';
+      toast.visible = true;
+      toastTimer = setTimeout(() => { toast.visible = false; }, 3000);
+    }
+
+    // ── NAVIGASI ───────────────────────────────────────────
+    function pindah(p) {
+      page.value = p;
+      if (p === 'keuangan') muatKeuangan();
+    }
+
+    // ── KEUANGAN ───────────────────────────────────────────
+    async function muatKeuangan() {
+      keuangan.loading = true;
+      keuangan.error   = '';
+      try {
+        const [rRes, tRes] = await Promise.all([
+          fetch(API_URL + '/ringkasan'),
+          fetch(API_URL + '/transaksi'),
+        ]);
+        if (!rRes.ok || !tRes.ok) throw new Error('Server merespons dengan error.');
+        const r = await rRes.json();
+        const t = await tRes.json();
+
+        keuangan.total_masuk  = r.total_masuk  ?? 0;
+        keuangan.total_keluar = r.total_keluar ?? 0;
+        keuangan.laba         = r.laba         ?? 0;
+        keuangan.insight      = r.insight      ?? '';
+        transaksi.value       = Array.isArray(t) ? t : [];
+      } catch (e) {
+        keuangan.error = 'Gagal memuat data. Pastikan backend berjalan di ' + API_URL;
+      } finally {
+        keuangan.loading = false;
+      }
+    }
+
+    async function simpanTransaksi() {
+      form.errJumlah = '';
+      if (!form.jumlah || form.jumlah <= 0) {
+        form.errJumlah = 'Jumlah harus lebih dari 0.';
+        return;
+      }
+      form.loading = true;
+      try {
+        const res = await fetch(API_URL + '/transaksi', {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify({
+            tanggal   : new Date().toISOString().slice(0, 10),
+            jenis     : form.jenis,
+            kategori  : form.kategori,
+            akun      : form.akun,
+            keterangan: form.keterangan || null,
+            jumlah    : form.jumlah,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Gagal menyimpan transaksi.');
+        }
+        form.jumlah      = '';
+        form.keterangan  = '';
+        showToast('✅ Transaksi berhasil disimpan!');
+        await muatKeuangan();
+      } catch (e) {
+        showToast('❌ ' + (e.message || 'Gagal. Cek koneksi backend.'), true);
+      } finally {
+        form.loading = false;
+      }
+    }
+
+    // ── HPP ────────────────────────────────────────────────
+    async function hitungHPP() {
+      hpp.error  = '';
+      hpp.hasil  = null;
+
+      const bahanValid = hpp.bahan.filter(b => b.nama && +b.jumlah > 0 && +b.harga > 0);
+      if (bahanValid.length === 0) {
+        hpp.error = 'Isi minimal satu bahan dengan nama, jumlah, dan harga yang valid.';
+        return;
+      }
+      const margin = Math.min(Math.max(Number(hpp.margin) || 30, 0), 99);
+
+      hpp.loading = true;
+      try {
+        const res = await fetch(API_URL + '/hpp', {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify({
+            nama_produk  : hpp.namaProduk || 'Produk',
+            margin_persen: margin,
+            bahan        : bahanValid.map(b => ({
+              nama            : b.nama,
+              jumlah          : parseFloat(b.jumlah),
+              satuan          : 'gram',
+              harga_per_satuan: parseFloat(b.harga),
+            })),
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Gagal menghitung HPP.');
+        }
+        hpp.hasil = await res.json();
+      } catch (e) {
+        hpp.error = e.message || 'Gagal. Cek koneksi backend.';
+      } finally {
+        hpp.loading = false;
+      }
+    }
+
+    // ── CHAT ───────────────────────────────────────────────
+    function addBubble(text, isUser, isTyping = false) {
+      chat.messages.push({ text, user: isUser, typing: isTyping });
+      nextTick(() => {
+        if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight;
+      });
+      return chat.messages[chat.messages.length - 1];
+    }
+
+    async function kirimChat() {
+      const q = chat.input.trim();
+      if (!q || chat.loading) return;
+      chat.input   = '';
+      chat.loading = true;
+
+      addBubble(q, true);
+      const typingMsg = addBubble('', false, true);
+
+      try {
+        const res = await fetch(API_URL + '/chat', {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify({ session_id: SESSION_ID, message: q }),
+        });
+        if (!res.ok) throw new Error('Respons server tidak valid.');
+        const data = await res.json();
+        // Sanitasi output AI sebelum ditampilkan — cegah XSS
+        typingMsg.text   = data.reply || 'Maaf, tidak ada jawaban.';
+        typingMsg.typing = false;
+      } catch {
+        typingMsg.text   = 'Maaf, asisten SPICEE sedang tidak tersedia. Silakan coba lagi.';
+        typingMsg.typing = false;
+      } finally {
+        chat.loading = false;
+        nextTick(() => chatInput.value?.focus());
+      }
+    }
+
+    function kirimCepat(q) {
+      chat.input = q;
+      kirimChat();
+    }
+
+    // ── INIT ───────────────────────────────────────────────
+    muatKeuangan();
+    addBubble('Halo! Aku SPICEE Assistant 🌿 Mau tanya seputar rempah, jamu, HPP, atau PIRT? Silakan!', false);
+
+    return {
+      page, toast, transaksi, keuangan, form, hpp, chat,
+      chatBox, chatInput,
+      rupiah, pindah,
+      simpanTransaksi, muatKeuangan,
+      hitungHPP,
+      kirimChat, kirimCepat,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
