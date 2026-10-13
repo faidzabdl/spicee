@@ -36,7 +36,6 @@ Backend FastAPI :8000
 - **Backend:** FastAPI (Python 3.12), Uvicorn
 - **Database:** Supabase (PostgreSQL)
 - **AI:** Langflow + Google Gemini (`gemini-flash-lite-latest`)
-- **Tunnel:** ngrok (opsional, untuk akses publik)
 
 ---
 
